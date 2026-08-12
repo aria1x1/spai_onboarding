@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tech Update Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="top-nav">
+    <div class="top-nav__inner">
+      <a class="brand" href="#/">Tech Update</a>
+      <button class="nav-toggle" id="navToggle" aria-label="메뉴 열기" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <nav class="nav-links" id="navLinks">
+        <a href="#/" data-route="/">통합 피드</a>
+        <a href="#/source/github" data-route="/source/github">GitHub</a>
+        <a href="#/source/huggingface" data-route="/source/huggingface">Hugging Face</a>
+        <a href="#/source/langchain" data-route="/source/langchain">LangChain</a>
+        <a href="#/archive" data-route="/archive">데일리 아카이브</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="container" id="app"></main>
+
+  <footer class="footer">
+    <p class="type-caption">TECH UPDATE DASHBOARD — GITHUB · HUGGING FACE · LANGCHAIN · HACKER NEWS</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
