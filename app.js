@@ -319,17 +319,26 @@ async function renderItem(id) {
 
 async function renderChat() {
   return `
-    <h2 class="type-headline">AI 챗봇 — 핀테크 용어 질문</h2>
-    <p class="auth-note type-body">궁금한 핀테크 용어나 개념을 질문해보세요.</p>
-    <form class="chat-form" id="chatForm">
-      <div class="field">
-        <label for="chatQuestion">질문</label>
-        <input type="text" id="chatQuestion" name="question" required placeholder="예: BNPL이 뭐야?" />
-      </div>
-      <button type="submit" class="pill pill-primary">질문하기</button>
-      <p class="auth-note type-body" id="chatError" hidden></p>
-    </form>
-    <div class="chat-log" id="chatAnswer"></div>
+    <section class="chat-panel">
+      <header class="chat-panel__header">
+        <h2 class="type-headline">AI 챗봇</h2>
+        <p class="type-body-sm chat-panel__hint">궁금한 핀테크 용어나 개념을 질문해보세요.</p>
+      </header>
+      <div class="chat-log" id="chatAnswer" aria-live="polite"></div>
+      <form class="chat-form" id="chatForm">
+        <input
+          type="text"
+          id="chatQuestion"
+          name="question"
+          required
+          autocomplete="off"
+          aria-label="질문"
+          placeholder="예: BNPL이 뭐야?"
+        />
+        <button type="submit" class="pill pill-primary chat-form__send">질문하기</button>
+      </form>
+      <p class="chat-form__error type-body-sm" id="chatError" hidden></p>
+    </section>
   `;
 }
 
@@ -382,37 +391,53 @@ async function render() {
   wireChatForm();
 }
 
-function chatEntryHtml(question, answer) {
-  return `
-    <article class="chat-entry">
-      <p class="chat-entry__question type-body">${escapeHtml(question)}</p>
-      <p class="chat-entry__answer type-body">${escapeHtml(answer)}</p>
-    </article>
-  `;
+// Claude answers use "**bold**" for emphasis; escape first so the markdown
+// markers themselves can't smuggle in HTML, then turn the escaped markers
+// into <strong> around the (already-escaped) inner text.
+function renderChatText(text) {
+  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 }
+
+function chatBubbleHtml(role, text) {
+  return `<div class="chat-bubble chat-bubble--${role}"><p class="type-body">${renderChatText(text)}</p></div>`;
+}
+
+const CHAT_LOADING_HTML = `
+  <div class="chat-bubble chat-bubble--bot chat-bubble--loading">
+    <span></span><span></span><span></span>
+  </div>
+`;
 
 function wireChatForm() {
   const form = document.getElementById("chatForm");
   if (!form) return;
+  const log = document.getElementById("chatAnswer");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const question = form.question.value.trim();
     if (!question) return;
     const submitBtn = form.querySelector("button[type=submit]");
     const errorEl = document.getElementById("chatError");
-    const answerEl = document.getElementById("chatAnswer");
     submitBtn.disabled = true;
     errorEl.hidden = true;
+    form.reset();
+
+    log.insertAdjacentHTML("beforeend", chatBubbleHtml("user", question));
+    log.insertAdjacentHTML("beforeend", CHAT_LOADING_HTML);
+    const loadingBubble = log.lastElementChild;
+    log.scrollTop = log.scrollHeight;
+
     try {
       const answer = await sendChatMessage(question);
-      answerEl.innerHTML = chatEntryHtml(question, answer);
-      form.reset();
+      loadingBubble.outerHTML = chatBubbleHtml("bot", answer);
     } catch (err) {
       console.error("sendChatMessage failed:", err);
+      loadingBubble.remove();
       errorEl.hidden = false;
       errorEl.textContent = "답변을 가져오지 못했습니다. 잠시 후 다시 시도해주세요.";
     } finally {
       submitBtn.disabled = false;
+      log.scrollTop = log.scrollHeight;
     }
   });
 }
