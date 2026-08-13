@@ -27,13 +27,45 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ahfSSk_--us1NkbQGMC-3w__v7HPO5Z
 
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
+// Temporary fallback shown only while `posts` is empty in Supabase (e.g.
+// api/collect.js hasn't run/succeeded yet on Vercel). Real article titles
+// and URLs pulled from each source's live feed on 2026-08-13 — see
+// CLAUDE.md "임시 조치 (목업 데이터 fallback)". Delete this block once
+// api/collect.js is confirmed populating `posts` for real.
+const MOCK_POSTS = [
+  { id: 9000001, source: "github", title: "GitHub availability report: July 2026", url: "https://github.blog/news-insights/company-news/github-availability-report-july-2026/", published_at: "2026-08-12T22:17:32Z", summary: "2026년 7월 GitHub 서비스에서 발생한 8건의 장애를 정리한 가동성 보고서입니다. 8월 6일 GitHub Actions 장애의 영향과 원인 분석 진행 상황을 다루고, Azure로의 인프라 이전을 가속화해 격리성과 복원력을 높이겠다는 계획을 밝혔습니다." },
+  { id: 9000002, source: "github", title: "Write your first prompt with the GitHub Copilot app", url: "https://github.blog/ai-and-ml/github-copilot/write-your-first-prompt-with-the-github-copilot-app/", published_at: "2026-08-12T19:00:00Z", summary: "GitHub Copilot 앱에서 첫 프롬프트를 작성하는 방법을 안내하는 글입니다. 적절한 컨텍스트와 모델을 선택하는 법, 첫 작업을 자신 있게 시작하는 팁을 다룹니다." },
+  { id: 9000003, source: "github", title: "Your contributors are AI-first now. Is your project?", url: "https://github.blog/open-source/maintainers/your-contributors-are-ai-first-now-is-your-project/", published_at: "2026-08-12T18:00:08Z", summary: "AI 기여자가 이미 오픈소스 프로젝트의 이슈·PR 큐에 들어오고 있다는 내용입니다. AutoGPT 메인테이너 Nicholas Tindle이 AI 기여자를 다루기 위한 저장소 가이드라인과 경계 설정 방법을 공유합니다." },
+  { id: 9000004, source: "huggingface", title: "Introducing OlmoEarth embeddings: Custom embedding exports from OlmoEarth Studio for downstream analysis", url: "https://huggingface.co/blog/allenai/olmoearth-embeddings", published_at: "2026-08-12T16:14:36Z", summary: "OlmoEarth Studio에서 다운스트림 분석용 커스텀 임베딩을 내보낼 수 있는 기능을 소개합니다. 위성·지구관측 데이터를 임베딩으로 변환해 별도 모델 학습 없이 분류·검색 등에 활용할 수 있습니다." },
+  { id: 9000005, source: "huggingface", title: "LFM2.5-VL-3B for Better and Faster Vision Capabilities for the Edge", url: "https://huggingface.co/blog/LiquidAI/lfm2-5-vl-3b", published_at: "2026-08-12T14:00:51Z", summary: "엣지 환경에서 더 빠르고 정확한 비전 처리를 지원하는 30억 파라미터급 비전-언어 모델 LFM2.5-VL-3B를 소개합니다. 온디바이스 추론 성능과 정확도 개선에 초점을 맞췄습니다." },
+  { id: 9000006, source: "huggingface", title: "Thinking of ACE? We Can Do It with Fewer Tokens", url: "https://huggingface.co/blog/ibm-research/altk-evolve-sldd", published_at: "2026-08-11T13:37:10Z", summary: "IBM Research가 제안하는 ALTK/Evolve-SLDD 기법을 소개합니다. ACE(Agentic Context Engineering) 방식보다 더 적은 토큰으로 비슷한 성능을 얻는 방법을 다룹니다." },
+  { id: 9000007, source: "langchain", title: "Why managed agents are the next big thing in agent building", url: "https://www.langchain.com/blog/why-managed-agents-are-the-next-big-thing-in-agent-building", published_at: "2026-08-13T00:00:06Z", summary: "Managed Deep Agents는 런타임, 스트리밍, 샌드박스, 평가, 메모리, 인증까지 내장된 관리형 방식으로 Deep Agent를 만들고 배포할 수 있게 해줍니다. 매니지드 에이전트가 에이전트 개발의 다음 흐름이 될 것이라는 전망을 다룹니다." },
+  { id: 9000008, source: "langchain", title: "LangSmith BYOC on AWS is generally available", url: "https://www.langchain.com/blog/langsmith-byoc-is-now-generally-available-on-aws", published_at: "2026-08-12T18:50:08Z", summary: "LangSmith의 BYOC(Bring Your Own Cloud)가 AWS에서 정식 출시되었습니다. 엔터프라이즈 팀이 자사 VPC 안에서 관찰성(observability), 평가, 배포를 관리형으로 이용할 수 있습니다." },
+  { id: 9000009, source: "langchain", title: "What is an AI agent?", url: "https://www.langchain.com/blog/what-is-an-agent", published_at: "2026-08-12T08:57:48Z", summary: "AI 에이전트가 무엇인지, LLM 루프 안에서 어떻게 동작하는지, 워크플로우와의 차이점을 설명하는 입문 가이드입니다. 신뢰할 수 있는 프로덕션급 자율 시스템을 만들기 위한 기초 개념을 다룹니다." },
+  { id: 9000010, source: "news", title: "Show HN: Ballet – Workflow automation that writes integrations against any API", url: "https://www.ballet.dev/", published_at: "2026-08-13T00:01:43Z", summary: "임의의 API에 대한 연동 코드를 자동으로 작성해주는 워크플로우 자동화 도구 Ballet를 소개하는 Show HN 게시물입니다." },
+  { id: 9000011, source: "news", title: "Happy 45th Birthday to the IBM PC and Model F/XT", url: "https://sharktastica.co.uk/articles/pc-fxt-45", published_at: "2026-08-12T23:50:33Z", summary: "IBM PC와 Model F/XT 키보드 출시 45주년을 기념하는 회고 글로, 초기 IBM PC의 하드웨어와 역사적 의미를 다룹니다." },
+  { id: 9000012, source: "news", title: "Build Wide, Ship Narrow", url: "https://adapt.com/blog/build-wide-ship-narrow", published_at: "2026-08-12T23:43:48Z", summary: "제품을 넓게 탐색하되 실제로 출시할 때는 좁고 명확한 범위로 좁혀야 한다는 제품 개발 전략을 다루는 글입니다." },
+  { id: 9000013, source: "fintech_global", title: "Comply Exchange's August report tracks global tax shake-up", url: "https://fintech.global/2026/08/12/comply-exchanges-august-report-tracks-global-tax-shake-up/", published_at: "2026-08-12T17:25:18Z", summary: "Comply Exchange의 2026년 7월 컴플라이언스 리포트에 따르면, 여러 국가의 세무당국이 FATCA·CRS·CARF 보고 체계를 더 엄격하게 강화하고 있다는 내용을 다룹니다." },
+  { id: 9000014, source: "fintech_global", title: "Why the AI trade splintered beneath a steady market", url: "https://fintech.global/2026/08/12/why-the-ai-trade-splintered-beneath-a-steady-market/", published_at: "2026-08-12T17:13:39Z", summary: "Exante의 7월 주식시장 리뷰로, 표면적으로는 잠잠했던 지수 뒤에서 AI 관련 종목들의 로테이션이 크게 흔들렸다는 분석을 담고 있습니다." },
+  { id: 9000015, source: "fintech_global", title: "How Identomat is tackling financial crime at the identity layer", url: "https://fintech.global/2026/08/12/how-identomat-is-tackling-financial-crime-at-the-identity-layer/", published_at: "2026-08-12T16:43:36Z", summary: "신원 인증 스타트업 Identomat의 CEO David Lomiashvili와의 인터뷰로, 신원 계층에서 금융 범죄를 예방하는 자동화 접근법을 다룹니다." },
+  { id: 9000016, source: "fintech_futures", title: "Thomaston Savings Bank overhauls ATM network with Diebold Nixdorf", url: "https://www.fintechfutures.com/branches-atms/thomaston-savings-bank-atm-technology-diebold-nixdorf", published_at: "2026-08-13T06:00:00Z", summary: "Thomaston Savings Bank가 Diebold Nixdorf의 DM7V 디스펜싱 모듈과 자동화된 운영 추적 도구로 ATM 네트워크를 전면 개편했다는 소식입니다." },
+  { id: 9000017, source: "fintech_futures", title: "In trust we trust", url: "https://www.fintechfutures.com/bankingtech/in-trust-we-trust", published_at: "2026-08-13T04:30:00Z", summary: "금융업의 핵심 가치인 신뢰가 어떻게 변화해왔는지, 오늘날 신뢰를 얻기 위해 필요한 조건이 무엇인지 다루는 칼럼입니다." },
+  { id: 9000018, source: "fintech_futures", title: "Cleversoft to acquire UK regtech FS Assist", url: "https://www.fintechfutures.com/m-a/cleversoft-to-acquire-fs-assist", published_at: "2026-08-12T11:26:51Z", summary: "PE가 투자한 컴플라이언스 기업 Cleversoft가 영국 레그테크 기업 FS Assist를 인수하며 유럽 확장을 이어간다는 소식입니다." },
+  { id: 9000019, source: "thisweekinfintech", title: "Coinbase Brings Its Global Tokenization Ambitions to Abu Dhabi | TWIF - MENA", url: "https://www.thisweekinfintech.com/p/coinbase-brings-its-global-tokenization-ambitions-to-abu-dhabi-twif-mena", published_at: "2026-08-13T09:00:00Z", summary: "Coinbase가 아부다비를 거점으로 글로벌 토큰화(tokenization) 사업 확장에 나섰다는 소식을 다루는 TWIF MENA 뉴스레터입니다." },
+  { id: 9000020, source: "thisweekinfintech", title: "The Public Ledger: Prime Time for Chime", url: "https://www.thisweekinfintech.com/p/the-public-ledger-prime-time-for-chime", published_at: "2026-08-13T08:59:00Z", summary: "네오뱅크 Chime이 본격적인 성장기에 접어들었다는 분석을 담은 The Public Ledger 칼럼입니다." },
+  { id: 9000021, source: "thisweekinfintech", title: "Monzo Hits 1 Million Business Customers | TWIF UK and Europe", url: "https://www.thisweekinfintech.com/p/monzo-hits-1-million-business-customers-twif-uk-and-europe", published_at: "2026-08-13T08:58:00Z", summary: "영국 네오뱅크 Monzo가 비즈니스 고객 100만 명을 돌파했다는 소식을 다루는 TWIF UK·유럽 뉴스레터입니다." },
+  { id: 9000022, source: "fintechtimes", title: "LG화학, 독립이사 참가 해외 거버넌스 기업설명회(NDR) 첫 개최", url: "https://www.fintechtimes.co.kr/news/article.html?no=57954", published_at: "2026-08-13T13:42:51+09:00", summary: "LG화학이 8월 13일 홍콩·싱가포르에서 열리는 해외 거버넌스 기업설명회(NDR)에 독립이사를 처음으로 참가시킨다고 밝혔습니다. 이사회 운영 현황과 개정 상법 대응을 공유하는 자리입니다." },
+  { id: 9000023, source: "fintechtimes", title: "다올투자증권, 전사 AI 활용 역량 강화 교육 실시", url: "https://www.fintechtimes.co.kr/news/article.html?no=57953", published_at: "2026-08-13T13:35:36+09:00", summary: "다올투자증권이 전 임직원을 대상으로 생성형 AI 활용 역량 강화 교육을 실시합니다. 프롬프트 핵심 기법부터 데이터 분석, 실무 적용까지 다루며 업무 생산성 향상을 목표로 합니다." },
+  { id: 9000024, source: "fintechtimes", title: "KB금융, 독립유공자 후손 소상공인 지원하는 '명품가게' 2차년도 참여자 모집", url: "https://www.fintechtimes.co.kr/news/article.html?no=57951", published_at: "2026-08-13T13:08:41+09:00", summary: "KB금융그룹이 광복절을 맞아 독립유공자 후손 소상공인을 지원하는 '명품가게' 프로젝트의 2차년도 참여자를 모집합니다. 점포·주거환경 개선을 통해 안정적인 생업 기반을 지원하는 사회공헌 프로젝트입니다." },
+];
+
 async function fetchPosts() {
   const { data, error } = await supabaseClient.from("posts").select("*").order("published_at", { ascending: false });
   if (error) {
     console.error("fetchPosts failed:", error);
-    return [];
+    return MOCK_POSTS;
   }
-  return data;
+  return data.length ? data : MOCK_POSTS;
 }
 
 // ---------------------------------------------------------------------------
