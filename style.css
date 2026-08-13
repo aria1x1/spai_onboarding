@@ -50,6 +50,7 @@
 
   /* layout */
   --content-width: 880px;
+  --nav-width: 1300px;
   --gutter: var(--space-xxl);
 }
 
@@ -158,7 +159,7 @@ button {
   border-bottom: var(--space-hair) solid var(--color-hairline);
 }
 .top-nav__inner {
-  max-width: var(--content-width);
+  max-width: var(--nav-width);
   margin: 0 auto;
   height: 56px;
   padding: 0 var(--gutter);
@@ -177,13 +178,44 @@ button {
   display: flex;
   align-items: center;
   gap: var(--space-lg);
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 .nav-links a {
   font-size: 16px;
   font-weight: 330;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .nav-links a.is-active {
   font-weight: 540;
+}
+.nav-auth {
+  font-size: 16px;
+  font-weight: 330;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 220px;
+}
+.nav-auth__email {
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+  vertical-align: bottom;
+}
+.link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
 }
 .nav-toggle {
   display: none;
@@ -395,9 +427,71 @@ button {
 .badge-huggingface { background: var(--color-block-cream); color: var(--color-ink); }
 .badge-langchain { background: var(--color-block-mint); color: var(--color-ink); }
 .badge-news { background: var(--color-block-coral); color: var(--color-ink); }
+.badge-fintech-global { background: var(--color-block-lime); color: var(--color-ink); }
+.badge-fintech-futures { background: var(--color-block-lilac); color: var(--color-ink); }
+.badge-thisweekinfintech { background: var(--color-block-pink); color: var(--color-ink); }
+.badge-fintechtimes { background: var(--color-accent-magenta); color: var(--color-inverse-ink); }
 
 .card__date {
   color: var(--color-ink);
+}
+
+.bookmark-btn {
+  margin-left: auto;
+  border: var(--space-hair) solid var(--color-hairline);
+  border-radius: var(--radius-full);
+  background: var(--color-canvas);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+}
+.bookmark-btn.is-bookmarked {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  border-color: var(--color-primary);
+}
+
+/* ==========================================================================
+   Auth / chat forms
+   ========================================================================== */
+.auth-form,
+.chat-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  max-width: 420px;
+}
+.auth-note {
+  color: var(--color-ink);
+  font-size: 16px;
+}
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin: var(--space-xl) 0;
+}
+.chat-entry {
+  background: var(--color-surface-soft);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+}
+.chat-entry__question {
+  font-weight: 540;
+  margin: 0 0 var(--space-xs);
+}
+.chat-entry__answer {
+  margin: 0;
+  white-space: pre-wrap;
+}
+.chat-entry__date {
+  display: block;
+  margin-top: var(--space-xs);
 }
 
 .empty-state {
