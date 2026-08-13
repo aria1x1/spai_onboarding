@@ -53,8 +53,11 @@ async function askClaude(question) {
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 500,
+      max_tokens: 800,
       system: FINTECH_SYSTEM_PROMPT,
+      // claude-haiku-4-5 supports only the basic web_search_20250305 variant
+      // (the newer web_search_20260209 with dynamic filtering is Opus/Sonnet-only).
+      tools: [{ type: "web_search_20250305", name: "web_search" }],
       messages: [{ role: "user", content: question }],
     }),
   });
@@ -62,7 +65,14 @@ async function askClaude(question) {
     throw new Error(`Claude API ${resp.status}: ${await resp.text()}`);
   }
   const data = await resp.json();
-  const text = data.content && data.content[0] && data.content[0].text;
+  // With web search enabled, content can interleave server_tool_use /
+  // web_search_tool_result blocks with text blocks, so join every text block
+  // instead of assuming the answer is content[0].
+  const text = (data.content || [])
+    .filter((block) => block.type === "text")
+    .map((block) => block.text)
+    .join("\n")
+    .trim();
   if (!text) throw new Error("empty response from Claude API");
-  return text.trim();
+  return text;
 }
