@@ -53,7 +53,9 @@ async function askClaude(question) {
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 800,
+      // 800 wasn't enough — thinking tokens and web_search tool round-trips
+      // eat into this budget before the final answer text, cutting it short.
+      max_tokens: 4096,
       system: FINTECH_SYSTEM_PROMPT,
       // claude-opus-5 supports the dynamic-filtering web search variant.
       tools: [{ type: "web_search_20260209", name: "web_search" }],
