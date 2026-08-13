@@ -67,7 +67,7 @@ vercel.json      # 예외: Vercel Cron 설정
 - `api/collect.js`, `api/chat.js`가 실제로 요구하는 Vercel 환경변수 (2026-08-13 롤백 반영 기준):
   - `SUPABASE_URL` — 프로젝트 REST 엔드포인트 베이스 URL (`https://<ref>.supabase.co`). `api/collect.js`에서만 사용.
   - `SUPABASE_SERVICE_ROLE_KEY` — `posts` 쓰기에 사용. `api/collect.js`에서만 사용 (로그인/`chat_logs`가 없어진 `api/chat.js`는 더 이상 Supabase를 호출하지 않는다).
-  - `ANTHROPIC_API_KEY` — `api/collect.js`, `api/chat.js` 둘 다 Claude Messages API 직접 호출(SDK 없이 `fetch`)에 사용, 모델은 `claude-haiku-4-5-20251001`
+  - `ANTHROPIC_API_KEY` — `api/collect.js`, `api/chat.js` 둘 다 Claude Messages API 직접 호출(SDK 없이 `fetch`)에 사용. `api/collect.js`는 `claude-haiku-4-5-20251001`(대량 요약, 비용 우선). `api/chat.js`는 `claude-sonnet-5`(2026-08-13, Haiku가 "ISA 리밸런싱" 같은 질문에도 제대로 답하지 못해 품질 우선으로 교체 — system prompt는 그대로 유지)
   - `CRON_SECRET` — `api/collect.js` 전용. Vercel Cron은 이 값이 설정되어 있으면 자동으로 `Authorization: Bearer $CRON_SECRET` 헤더를 붙여 호출하므로, 함수는 이 헤더를 검증해 무단 호출(과금 남용)을 막는다.
 - 두 함수 모두 `@supabase/supabase-js`, Anthropic SDK 등 npm 패키지를 쓰지 않고 Supabase REST(PostgREST)와 Claude API를 순수 `fetch`로 직접 호출한다 (백엔드도 "파일 3개 + 예외 2개" 원칙을 지키기 위해 `package.json`/`node_modules`를 추가하지 않기로 함, 2026-08-13 결정). `api/chat.js`는 로그인이 없으므로 이제 Claude API만 호출한다.
 

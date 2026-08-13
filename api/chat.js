@@ -5,7 +5,7 @@
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-const CLAUDE_MODEL = "claude-haiku-4-5-20251001";
+const CLAUDE_MODEL = "claude-sonnet-5";
 const MAX_QUESTION_LENGTH = 500;
 
 const FINTECH_SYSTEM_PROMPT = `당신은 핀테크(FinTech) 분야에 특화된 AI 어시스턴트입니다.
@@ -55,9 +55,8 @@ async function askClaude(question) {
       model: CLAUDE_MODEL,
       max_tokens: 800,
       system: FINTECH_SYSTEM_PROMPT,
-      // claude-haiku-4-5 supports only the basic web_search_20250305 variant
-      // (the newer web_search_20260209 with dynamic filtering is Opus/Sonnet-only).
-      tools: [{ type: "web_search_20250305", name: "web_search" }],
+      // claude-sonnet-5 supports the dynamic-filtering web search variant.
+      tools: [{ type: "web_search_20260209", name: "web_search" }],
       messages: [{ role: "user", content: question }],
     }),
   });
