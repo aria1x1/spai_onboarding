@@ -48,10 +48,25 @@ vercel.json      # 예외: Vercel Cron 설정
   2. Claude API로 신규 항목만 요약 (API 키는 서버 환경에서만 사용)
   3. Supabase에 service role key로 upsert (URL 기준 중복 방지)
 - **AI 챗봇 처리**: `app.js`가 로그인 세션 토큰과 질문 텍스트를 `api/chat.js`로 전달하면, 이 함수가 (1) 토큰으로 사용자를 확인하고 (2) 핀테크 특화 시스템 프롬프트로 Claude API를 호출한 뒤 (3) 질문/답변을 `chat_logs`에 저장하고 답변을 응답으로 돌려준다. 로그인하지 않은 요청은 거부한다.
+- **소스별 수집 방식** (2026-08-13 실제 URL 확인, `api/collect.js`의 `SOURCES`가 최종 소스):
+  - GitHub Blog: RSS `https://github.blog/feed/`
+  - Hugging Face Blog: RSS `https://huggingface.co/blog/feed.xml` (전체 아카이브를 반환하므로 최신 `MAX_ITEMS_PER_SOURCE`개만 사용)
+  - LangChain Blog: RSS `https://www.langchain.com/blog/rss.xml` (`blog.langchain.dev/rss/`는 더 이상 유효하지 않고 이 주소로 리다이렉트됨)
+  - Daily Tech News: RSS `https://hnrss.org/frontpage` (Hacker News는 공식 RSS가 없어 서드파티 프록시 사용)
+  - fintech.global: RSS `https://fintech.global/feed/`
+  - FinTech Futures: RSS `https://www.fintechfutures.com/rss.xml` (`/feed/`는 404)
+  - This Week in Fintech: **RSS 없음** — Beehiiv 커스텀 도메인이라 `/feed` 계열이 전부 404. `https://www.thisweekinfintech.com/archive`를 HTML로 받아 `aria-label` 속성에서 제목을 추출하는 방식으로 대체. 발행일을 알 수 없어 수집 시각을 `published_at`으로 대신 사용.
+  - The Fintech Times: RSS `https://fintechtimes.co.kr/data/rss/news.xml` (홈페이지 `<link rel="alternate">`에서 발견, `/feed/`는 404)
 
 ## 비밀키 관리
 - `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`는 Vercel 환경변수로만 관리한다. 프론트엔드 코드(`app.js`, `index.html`)에 절대 하드코딩하지 않는다. `api/chat.js`도 `ANTHROPIC_API_KEY`를 서버 환경변수로만 읽는다.
 - 프론트엔드에 넣어도 되는 키는 Supabase **anon(public) key**뿐이며, 이 키는 RLS로 `posts` SELECT 및 로그인 사용자 본인 소유 행 접근만 허용되므로 노출되어도 안전한 범위로 제한한다.
+- `api/collect.js`, `api/chat.js`가 실제로 요구하는 Vercel 환경변수 (2026-08-13 구현 기준):
+  - `SUPABASE_URL` — 프로젝트 REST/Auth 엔드포인트 베이스 URL (`https://<ref>.supabase.co`)
+  - `SUPABASE_SERVICE_ROLE_KEY` — `posts`/`chat_logs` 쓰기 및 `api/chat.js`의 사용자 토큰 검증(`/auth/v1/user` 호출)에 사용
+  - `ANTHROPIC_API_KEY` — 두 함수 모두 Claude Messages API 직접 호출(SDK 없이 `fetch`)에 사용, 모델은 `claude-haiku-4-5-20251001`
+  - `CRON_SECRET` — `api/collect.js` 전용. Vercel Cron은 이 값이 설정되어 있으면 자동으로 `Authorization: Bearer $CRON_SECRET` 헤더를 붙여 호출하므로, 함수는 이 헤더를 검증해 무단 호출(과금 남용)을 막는다.
+- 두 함수 모두 `@supabase/supabase-js`, Anthropic SDK 등 npm 패키지를 쓰지 않고 Supabase REST(PostgREST)·Auth 엔드포인트와 Claude API를 순수 `fetch`로 직접 호출한다 (백엔드도 "파일 3개 + 예외 2개" 원칙을 지키기 위해 `package.json`/`node_modules`를 추가하지 않기로 함, 2026-08-13 결정).
 
 ## 코딩 규칙
 - `app.js`는 프레임워크 없이 DOM API를 직접 다룬다. 상태 관리 라이브러리 도입 금지.
