@@ -14,18 +14,22 @@ Tech Update 대시보드 프로젝트의 작업 규칙입니다. 제품 요구�
 
 사용자와 협의 후 **Supabase(DB) + Vercel(호스팅/서버리스 함수) 조합으로 위 문제를 해결**하기로 결정함 (2026-08-12). 프론트엔드의 "3파일 원칙"은 유지하되, 수집/요약을 위한 서버리스 함수 1개만 예외로 허용한다.
 
-**2026-08-13 결정 (Fintech 탭 / 북마크 / AI 챗봇 확장):**
-- 북마크와 AI 챗봇 아카이브는 "누구의 것인지"가 있어야 하는 사용자별 데이터다. 기존 PRD는 "계정 없음"을 전제했으나, 사용자와 협의해 **Supabase Auth 이메일 매직링크**로 최소한의 로그인을 도입하기로 결정함. 비밀번호/OAuth는 도입하지 않는다.
-- AI 챗봇 응답 생성(Claude API 호출)도 브라우저에서 직접 하면 API 키가 노출되므로, `api/collect.js`와 동일한 이유로 서버리스 함수 1개(`api/chat.js`)를 추가 예외로 허용한다.
+**2026-08-13 결정 (Fintech 탭 / AI 챗봇 확장):**
+- AI 챗봇 응답 생성(Claude API 호출)을 브라우저에서 직접 하면 API 키가 노출되므로, `api/collect.js`와 동일한 이유로 서버리스 함수 1개(`api/chat.js`)를 추가 예외로 허용한다.
 - Fintech 4개 소스는 별도 테이블을 만들지 않고 기존 `posts` 테이블의 `source` 값 종류만 늘려서 처리한다 (아래 기술 스택 참고). 스키마를 늘리지 않는 선택.
+
+**2026-08-13 롤백 결정 (로그인/북마크 제거):** 같은 날 도입했던 Supabase Auth 이메일 매직링크 로그인이 실제로 붙지 않아(매직링크 세션 복원 계속 실패) 사용자와 협의해 **로그인 기능 자체를 제거**하기로 결정함. 로그인에 의존하던 기능도 함께 정리한다:
+- 북마크 기능 삭제 (로그인 없이는 "내 북마크"라는 개념이 성립하지 않음. `bookmarks` 테이블/RLS 정책도 더 이상 사용하지 않음).
+- AI 챗봇의 질문/답변 아카이브 저장 삭제. 챗봇 자체는 유지하되 로그인 없이 누구나 쓸 수 있고, 답변은 저장하지 않고 화면에만 표시한다 (`chat_logs` 테이블/RLS 정책도 더 이상 사용하지 않음).
+- Fintech 뉴스 수집(`api/collect.js`)은 로그인과 무관하므로 이번 롤백의 영향을 받지 않고 그대로 유지한다.
 
 ## 파일 구성 (고정)
 ```
 index.html       # 마크업만
 style.css        # 전체 스타일
-app.js           # 전체 클라이언트 로직 (Supabase JS SDK로 데이터 조회/필터링/렌더링, Auth 세션 관리)
+app.js           # 전체 클라이언트 로직 (Supabase JS SDK로 posts 조회/필터링/렌더링, 로그인 없음)
 api/collect.js   # 예외: Vercel Serverless Function — RSS/HTML 수집 + Claude 요약 + Supabase 저장 (테크 3소스 + 핀테크 4소스)
-api/chat.js      # 예외: Vercel Serverless Function — 핀테크 특화 시스템 프롬프트로 Claude API 호출, 응답을 chat_logs에 저장
+api/chat.js      # 예외: Vercel Serverless Function — 핀테크 특화 시스템 프롬프트로 Claude API 호출 (로그인 불필요, 응답은 저장하지 않음)
 vercel.json      # 예외: Vercel Cron 설정
 ```
 - 프론트엔드 파일은 `index.html`, `style.css`, `app.js` 3개만 유지한다. 컴포넌트 분리, 별도 JS 모듈 파일, CSS 분리 등 추가 파일 생성 금지.
@@ -34,20 +38,17 @@ vercel.json      # 예외: Vercel Cron 설정
 ## 기술 스택
 - **프론트엔드**: 바닐라 HTML/CSS/JS(ES6+)만 사용. React/Vue 등 프레임워크, Webpack/Vite 등 번들러, TypeScript 도입 금지 (빌드 스텝 없이 그대로 배포).
 - **외부 라이브러리**: npm install 금지. 필요한 경우 CDN `<script>` 태그로만 로드 (예: `@supabase/supabase-js`).
-- **데이터 저장소**: Supabase(Postgres). 다음 3개 테이블을 사용한다.
+- **데이터 저장소**: Supabase(Postgres). `posts` 테이블 하나만 사용한다.
   - `posts` (source, title, url, published_at, summary, raw_excerpt, fetched_at): 테크 3소스 + 핀테크 4소스 공용. `source` 값에 `fintech_global` / `fintech_futures` / `thisweekinfintech` / `fintechtimes`를 추가한다. 새 컬럼은 만들지 않는다.
-  - `bookmarks` (id, user_id, post_id, created_at): `user_id`는 `auth.uid()`를 참조. `(user_id, post_id)` 유니크 제약으로 중복 북마크를 방지한다.
-  - `chat_logs` (id, user_id, question, answer, created_at): 챗봇 아카이브. 멀티턴 스레드가 아니므로 대화방 개념 없이 질문/답변 1행씩 저장한다.
   - `app.js`는 Supabase anon key로 `posts`에 **읽기 전용(SELECT)**만 수행한다. RLS 정책으로 anon 역할은 SELECT만 허용하고 INSERT/UPDATE/DELETE는 service role에서만 가능하도록 설정한다.
-  - `bookmarks`, `chat_logs`는 로그인 세션(Supabase Auth JWT)으로 접근한다. RLS로 `auth.uid() = user_id`인 행만 SELECT/INSERT/DELETE 가능하도록 제한해 계정 간 데이터가 섞이지 않게 한다. anon 역할은 이 두 테이블에 접근 권한이 없다.
-  - `localStorage`는 대시보드 데이터 저장용이 아니라 **사용자 개인 설정**(마지막 선택한 필터, 테마 등 UI 상태)에만 사용한다. 로그인 세션 자체는 Supabase JS SDK가 관리하는 저장소를 그대로 사용한다(별도 커스텀 세션 저장 로직 금지).
-- **인증**: Supabase Auth 이메일 매직링크(OTP) 방식만 사용한다. 비밀번호, OAuth 소셜 로그인은 추가하지 않는다. `app.js`에서 로그인 상태에 따라 북마크 버튼/AI 챗봇 탭 접근을 분기한다.
+  - `localStorage`는 대시보드 데이터 저장용이 아니라 **사용자 개인 설정**(마지막 선택한 필터, 테마 등 UI 상태)에만 사용한다.
+- **인증**: 로그인 기능 없음 (2026-08-13 롤백 결정, 위 아키텍처 결정 배경 참고). 뉴스 피드와 AI 챗봇 모두 누구나 사용할 수 있다.
 - **배포**: Vercel에 정적 사이트로 배포. `api/collect.js`, `api/chat.js`는 Vercel Serverless Function으로 함께 배포된다.
 - **수집/요약 스케줄링**: `vercel.json`의 `crons` 설정으로 `api/collect.js`를 주기적으로 호출한다. 이 함수 안에서:
   1. GitHub/Hugging Face/LangChain RSS + 데일리 테크 뉴스 + 4개 핀테크 소스를 서버사이드로 fetch (CORS 문제 없음)
   2. Claude API로 신규 항목만 요약 (API 키는 서버 환경에서만 사용)
   3. Supabase에 service role key로 upsert (URL 기준 중복 방지)
-- **AI 챗봇 처리**: `app.js`가 로그인 세션 토큰과 질문 텍스트를 `api/chat.js`로 전달하면, 이 함수가 (1) 토큰으로 사용자를 확인하고 (2) 핀테크 특화 시스템 프롬프트로 Claude API를 호출한 뒤 (3) 질문/답변을 `chat_logs`에 저장하고 답변을 응답으로 돌려준다. 로그인하지 않은 요청은 거부한다.
+- **AI 챗봇 처리**: `app.js`가 질문 텍스트를 `api/chat.js`로 전달하면, 이 함수가 핀테크 특화 시스템 프롬프트로 Claude API를 호출한 뒤 답변을 응답으로 돌려준다. 로그인/사용자 식별 없이 누구나 호출할 수 있고, 질문/답변은 서버에 저장하지 않는다.
 - **소스별 수집 방식** (2026-08-13 실제 URL 확인, `api/collect.js`의 `SOURCES`가 최종 소스):
   - GitHub Blog: RSS `https://github.blog/feed/`
   - Hugging Face Blog: RSS `https://huggingface.co/blog/feed.xml` (전체 아카이브를 반환하므로 최신 `MAX_ITEMS_PER_SOURCE`개만 사용)
@@ -59,22 +60,21 @@ vercel.json      # 예외: Vercel Cron 설정
   - The Fintech Times: RSS `https://fintechtimes.co.kr/data/rss/news.xml` (홈페이지 `<link rel="alternate">`에서 발견, `/feed/`는 404)
 
 ## 비밀키 관리
-- `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`는 Vercel 환경변수로만 관리한다. 프론트엔드 코드(`app.js`, `index.html`)에 절대 하드코딩하지 않는다. `api/chat.js`도 `ANTHROPIC_API_KEY`를 서버 환경변수로만 읽는다.
-- 프론트엔드에 넣어도 되는 키는 Supabase **anon(public) key**뿐이며, 이 키는 RLS로 `posts` SELECT 및 로그인 사용자 본인 소유 행 접근만 허용되므로 노출되어도 안전한 범위로 제한한다. (2026-08-13) `app.js` 상단의 `SUPABASE_URL`/`SUPABASE_PUBLISHABLE_KEY`가 이 키다 — 새 publishable key 포맷(`sb_publishable_...`)을 사용했다.
-- `api/collect.js`, `api/chat.js`가 실제로 요구하는 Vercel 환경변수 (2026-08-13 구현 기준):
-  - `SUPABASE_URL` — 프로젝트 REST/Auth 엔드포인트 베이스 URL (`https://<ref>.supabase.co`)
-  - `SUPABASE_SERVICE_ROLE_KEY` — `posts`/`chat_logs` 쓰기 및 `api/chat.js`의 사용자 토큰 검증(`/auth/v1/user` 호출)에 사용
-  - `ANTHROPIC_API_KEY` — 두 함수 모두 Claude Messages API 직접 호출(SDK 없이 `fetch`)에 사용, 모델은 `claude-haiku-4-5-20251001`
+- `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`는 Vercel 환경변수로만 관리한다. 프론트엔드 코드(`app.js`, `index.html`)에 절대 하드코딩하지 않는다.
+- 프론트엔드에 넣어도 되는 키는 Supabase **anon(public) key**뿐이며, 이 키는 RLS로 `posts` SELECT만 허용하므로 노출되어도 안전한 범위로 제한한다. (2026-08-13) `app.js` 상단의 `SUPABASE_URL`/`SUPABASE_PUBLISHABLE_KEY`가 이 키다 — 새 publishable key 포맷(`sb_publishable_...`)을 사용했다.
+- `api/collect.js`, `api/chat.js`가 실제로 요구하는 Vercel 환경변수 (2026-08-13 롤백 반영 기준):
+  - `SUPABASE_URL` — 프로젝트 REST 엔드포인트 베이스 URL (`https://<ref>.supabase.co`). `api/collect.js`에서만 사용.
+  - `SUPABASE_SERVICE_ROLE_KEY` — `posts` 쓰기에 사용. `api/collect.js`에서만 사용 (로그인/`chat_logs`가 없어진 `api/chat.js`는 더 이상 Supabase를 호출하지 않는다).
+  - `ANTHROPIC_API_KEY` — `api/collect.js`, `api/chat.js` 둘 다 Claude Messages API 직접 호출(SDK 없이 `fetch`)에 사용, 모델은 `claude-haiku-4-5-20251001`
   - `CRON_SECRET` — `api/collect.js` 전용. Vercel Cron은 이 값이 설정되어 있으면 자동으로 `Authorization: Bearer $CRON_SECRET` 헤더를 붙여 호출하므로, 함수는 이 헤더를 검증해 무단 호출(과금 남용)을 막는다.
-- 두 함수 모두 `@supabase/supabase-js`, Anthropic SDK 등 npm 패키지를 쓰지 않고 Supabase REST(PostgREST)·Auth 엔드포인트와 Claude API를 순수 `fetch`로 직접 호출한다 (백엔드도 "파일 3개 + 예외 2개" 원칙을 지키기 위해 `package.json`/`node_modules`를 추가하지 않기로 함, 2026-08-13 결정).
+- 두 함수 모두 `@supabase/supabase-js`, Anthropic SDK 등 npm 패키지를 쓰지 않고 Supabase REST(PostgREST)와 Claude API를 순수 `fetch`로 직접 호출한다 (백엔드도 "파일 3개 + 예외 2개" 원칙을 지키기 위해 `package.json`/`node_modules`를 추가하지 않기로 함, 2026-08-13 결정). `api/chat.js`는 로그인이 없으므로 이제 Claude API만 호출한다.
 
 ## 코딩 규칙
 - `app.js`는 프레임워크 없이 DOM API를 직접 다룬다. 상태 관리 라이브러리 도입 금지.
 - 소스별 배지 색상, 카드 레이아웃 등은 `style.css` 한 파일에만 정의한다.
 - 개별 소스 수집 실패가 다른 소스에 영향을 주지 않도록 `api/collect.js` 내에서 소스별로 에러를 격리한다 (PRD 검증 기준 대응). 핀테크 4소스도 동일한 격리 원칙을 적용한다.
-- (2026-08-13) `app.js`는 이제 실제 Supabase 클라이언트로 연동되어 있다 — `fetchPosts`/`fetchBookmarks`/`toggleBookmark`는 Supabase REST(PostgREST via JS SDK)를, `sendChatMessage`는 `fetch("/api/chat")`를, `fetchChatLogs`는 `chat_logs` 테이블을 직접 읽는다. mock 함수는 모두 제거했다. `SUPABASE_URL`/publishable key는 `app.js` 상단에 하드코딩되어 있다 (RLS로 보호되므로 노출되어도 안전, 위 비밀키 관리 절 참고).
-- 로그인 세션은 `supabaseClient.auth.getSession()`으로 초기화 후 모듈 전역 `currentSession`에 캐시하고, `onAuthStateChange`로 갱신한다 (매직링크 완료·로그아웃·다른 탭에서의 로그인 시 자동 반영). `getSession()`은 이 캐시를 동기적으로 읽는 헬퍼일 뿐, 매 호출마다 네트워크를 타지 않는다.
-- 매직링크 로그인은 `flowType: "pkce"`로 설정한다 (URL 해시가 아닌 `?code=` 쿼리 파라미터로 콜백이 오므로, 해시 기반 라우터(`#/...`)와 충돌하지 않음).
+- `app.js`는 실제 Supabase 클라이언트로 연동되어 있다 — `fetchPosts`는 Supabase REST(PostgREST via JS SDK)로 `posts`를 읽기 전용 조회하고, `sendChatMessage`는 `fetch("/api/chat")`로 질문을 보내고 답변을 화면에만 표시한다(저장 없음). `SUPABASE_URL`/publishable key는 `app.js` 상단에 하드코딩되어 있다 (RLS로 보호되므로 노출되어도 안전, 위 비밀키 관리 절 참고).
+- 로그인/북마크/챗봇 아카이브는 2026-08-13에 도입했다가 같은 날 롤백했다 (위 아키텍처 결정 배경 참고). `app.js`에 세션 관리, 매직링크, 북마크 관련 코드를 다시 추가하지 않는다.
 
 ## 참고
 - 기존에 로컬 검증용으로 만들었던 Python/FastAPI 프로토타입(`tech-dashboard/app/*.py`)은 이 아키텍처 결정에 따라 더 이상 사용하지 않는다. 신규 구현은 이 문서 기준(정적 프론트 + Supabase + Vercel)으로 새로 진행한다.

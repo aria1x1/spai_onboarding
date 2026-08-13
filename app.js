@@ -17,61 +17,15 @@ const TECH_SOURCE_KEYS = SOURCE_KEYS.filter((key) => SOURCES[key].category === "
 const FINTECH_SOURCE_KEYS = SOURCE_KEYS.filter((key) => SOURCES[key].category === "fintech");
 
 // ---------------------------------------------------------------------------
-// Supabase client + auth (email magic link). The publishable key is safe to
-// ship in frontend code — RLS is what actually restricts access (see
-// CLAUDE.md). `supabase` here is the UMD global from the CDN <script> tag in
-// index.html; `supabaseClient` is our instance of it.
+// Supabase client — read-only anon access to `posts` (RLS restricts anon to
+// SELECT; see CLAUDE.md). `supabase` here is the UMD global from the CDN
+// <script> tag in index.html; `supabaseClient` is our instance of it.
 // ---------------------------------------------------------------------------
 
 const SUPABASE_URL = "https://ifrgkxbfhbdiscbqxjnj.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ahfSSk_--us1NkbQGMC-3w__v7HPO5Z";
 
-const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: { flowType: "pkce" },
-});
-
-let currentSession = null;
-
-async function initAuth() {
-  // getSession() also performs the PKCE code exchange when the page loads
-  // with a magic-link `?code=...` in the URL. If that exchange fails (link
-  // already used, opened in a different browser than the one that requested
-  // it, etc.) this must not prevent the app from rendering at all — fall
-  // back to "logged out" and let the user try logging in again.
-  try {
-    const { data } = await supabaseClient.auth.getSession();
-    currentSession = data.session;
-  } catch (err) {
-    console.error("initAuth: getSession failed:", err);
-    currentSession = null;
-  }
-  supabaseClient.auth.onAuthStateChange((_event, session) => {
-    currentSession = session;
-    renderNavAuth();
-    render();
-  });
-}
-
-function getSession() {
-  if (!currentSession) return null;
-  return { id: currentSession.user.id, email: currentSession.user.email, accessToken: currentSession.access_token };
-}
-
-async function signInWithMagicLink(email) {
-  const { error } = await supabaseClient.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: window.location.origin + "/" },
-  });
-  if (error) throw error;
-}
-
-async function signOut() {
-  await supabaseClient.auth.signOut();
-}
-
-// ---------------------------------------------------------------------------
-// Posts (read-only, anon-accessible) + bookmarks (RLS-scoped to auth.uid())
-// ---------------------------------------------------------------------------
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
 async function fetchPosts() {
   const { data, error } = await supabaseClient.from("posts").select("*").order("published_at", { ascending: false });
@@ -82,72 +36,21 @@ async function fetchPosts() {
   return data;
 }
 
-async function fetchBookmarks(userId) {
-  const { data, error } = await supabaseClient.from("bookmarks").select("post_id").eq("user_id", userId);
-  if (error) {
-    console.error("fetchBookmarks failed:", error);
-    return [];
-  }
-  return data;
-}
-
-async function toggleBookmark(userId, postId) {
-  const { data: existing, error: selectError } = await supabaseClient
-    .from("bookmarks")
-    .select("id")
-    .eq("user_id", userId)
-    .eq("post_id", postId)
-    .maybeSingle();
-  if (selectError) throw selectError;
-
-  if (existing) {
-    const { error } = await supabaseClient.from("bookmarks").delete().eq("id", existing.id);
-    if (error) throw error;
-  } else {
-    const { error } = await supabaseClient.from("bookmarks").insert({ user_id: userId, post_id: postId });
-    if (error) throw error;
-  }
-}
-
-async function bookmarkedIdSet() {
-  const session = getSession();
-  if (!session) return new Set();
-  const bookmarks = await fetchBookmarks(session.id);
-  return new Set(bookmarks.map((b) => b.post_id));
-}
-
 // ---------------------------------------------------------------------------
 // AI chatbot — answers come from api/chat.js (Claude API with a FinTech-
-// specialized system prompt); the archive is read straight from `chat_logs`
-// (api/chat.js writes it, RLS scopes reads to the caller's own rows).
+// specialized system prompt). No login, no archive: each question/answer
+// only lives on screen for that session.
 // ---------------------------------------------------------------------------
 
 async function sendChatMessage(question) {
-  const session = getSession();
   const resp = await fetch("/api/chat", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Authorization: `Bearer ${session.accessToken}`,
-    },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify({ question }),
   });
   const data = await resp.json();
   if (!resp.ok) throw new Error(data.error || `chat request failed (${resp.status})`);
   return data.answer;
-}
-
-async function fetchChatLogs(userId) {
-  const { data, error } = await supabaseClient
-    .from("chat_logs")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
-  if (error) {
-    console.error("fetchChatLogs failed:", error);
-    return [];
-  }
-  return data;
 }
 
 const FILTER_STORAGE_KEY = "techdash:lastFilter"; // UI preference only — never dashboard data.
@@ -182,19 +85,13 @@ function badgeHtml(source) {
   return `<span class="badge ${meta.badgeClass} type-caption">${escapeHtml(meta.label)}</span>`;
 }
 
-function bookmarkButtonHtml(post, bookmarkedIds) {
-  const isBookmarked = Boolean(bookmarkedIds && bookmarkedIds.has(post.id));
-  return `<button type="button" class="bookmark-btn ${isBookmarked ? "is-bookmarked" : ""}" data-bookmark-toggle="${post.id}" aria-label="${isBookmarked ? "북마크 해제" : "북마크 추가"}" title="${isBookmarked ? "북마크 해제" : "북마크 추가"}">${isBookmarked ? "★" : "☆"}</button>`;
-}
-
-function postCardHtml(post, bookmarkedIds) {
+function postCardHtml(post) {
   const bodyText = post.summary || post.raw_excerpt || "요약 준비 중입니다.";
   return `
     <article class="card">
       <div class="card__meta">
         ${badgeHtml(post.source)}
         <span class="card__date type-caption">${formatDate(post.published_at)}</span>
-        ${bookmarkButtonHtml(post, bookmarkedIds)}
       </div>
       <h3 class="card__title type-card-title"><a href="#/item/${post.id}">${escapeHtml(post.title)}</a></h3>
       <p class="card__summary type-body">${escapeHtml(bodyText)}</p>
@@ -281,7 +178,6 @@ async function renderHome(query) {
 
   const newsPosts = posts.filter((p) => p.source === "news");
   const filtered = applyFilters(posts, state);
-  const bookmarkedIds = await bookmarkedIdSet();
 
   return `
     ${digestHtml(newsPosts)}
@@ -289,7 +185,7 @@ async function renderHome(query) {
     <section class="feed">
       ${
         filtered.length
-          ? filtered.map((p) => postCardHtml(p, bookmarkedIds)).join("")
+          ? filtered.map((p) => postCardHtml(p)).join("")
           : emptyStateHtml("조건에 맞는 항목이 없습니다.")
       }
     </section>
@@ -306,7 +202,6 @@ async function renderFintech(query) {
   };
 
   const filtered = applyFilters(posts, state);
-  const bookmarkedIds = await bookmarkedIdSet();
 
   return `
     <h2 class="type-headline">Fintech</h2>
@@ -314,7 +209,7 @@ async function renderFintech(query) {
     <section class="feed">
       ${
         filtered.length
-          ? filtered.map((p) => postCardHtml(p, bookmarkedIds)).join("")
+          ? filtered.map((p) => postCardHtml(p)).join("")
           : emptyStateHtml("아직 수집된 항목이 없습니다.")
       }
     </section>
@@ -327,14 +222,13 @@ async function renderSource(sourceKey) {
   }
   const posts = await fetchPosts();
   const filtered = applyFilters(posts, { source: sourceKey });
-  const bookmarkedIds = await bookmarkedIdSet();
 
   return `
     <h2 class="type-headline">${escapeHtml(SOURCES[sourceKey].label)}</h2>
     <section class="feed">
       ${
         filtered.length
-          ? filtered.map((p) => postCardHtml(p, bookmarkedIds)).join("")
+          ? filtered.map((p) => postCardHtml(p)).join("")
           : emptyStateHtml("아직 수집된 항목이 없습니다.")
       }
     </section>
@@ -347,7 +241,6 @@ async function renderArchive(query) {
   const dates = [...new Set(newsPosts.map((p) => formatDate(p.published_at)))].sort((a, b) => (a < b ? 1 : -1));
   const selectedDate = query.date || dates[0] || "";
   const dayPosts = newsPosts.filter((p) => formatDate(p.published_at) === selectedDate);
-  const bookmarkedIds = await bookmarkedIdSet();
 
   const dateListHtml = dates.length
     ? dates
@@ -362,7 +255,7 @@ async function renderArchive(query) {
       <section class="feed">
         ${
           dayPosts.length
-            ? dayPosts.map((p) => postCardHtml(p, bookmarkedIds)).join("")
+            ? dayPosts.map((p) => postCardHtml(p)).join("")
             : emptyStateHtml("선택한 날짜에 항목이 없습니다.")
         }
       </section>
@@ -377,7 +270,6 @@ async function renderItem(id) {
     return emptyStateHtml("항목을 찾을 수 없습니다.");
   }
   const bodyText = post.summary || post.raw_excerpt || "요약 준비 중입니다.";
-  const bookmarkedIds = await bookmarkedIdSet();
 
   return `
     <a class="back-link" href="#/">← 통합 피드로 돌아가기</a>
@@ -385,7 +277,6 @@ async function renderItem(id) {
       <div class="detail__meta">
         ${badgeHtml(post.source)}
         <span class="card__date type-caption">${formatDate(post.published_at)}</span>
-        ${bookmarkButtonHtml(post, bookmarkedIds)}
       </div>
       <h1 class="detail__title type-headline">${escapeHtml(post.title)}</h1>
       <p class="detail__summary type-body">${escapeHtml(bodyText)}</p>
@@ -394,52 +285,10 @@ async function renderItem(id) {
   `;
 }
 
-async function renderBookmarks() {
-  const session = getSession();
-  if (!session) {
-    location.hash = "/login?next=" + encodeURIComponent("/bookmarks");
-    return "";
-  }
-  const posts = await fetchPosts();
-  const bookmarks = await fetchBookmarks(session.id);
-  const bookmarkedIds = new Set(bookmarks.map((b) => b.post_id));
-  const bookmarkedPosts = posts
-    .filter((p) => bookmarkedIds.has(p.id))
-    .sort((a, b) => (a.published_at < b.published_at ? 1 : -1));
-
-  return `
-    <h2 class="type-headline">북마크</h2>
-    <section class="feed">
-      ${
-        bookmarkedPosts.length
-          ? bookmarkedPosts.map((p) => postCardHtml(p, bookmarkedIds)).join("")
-          : emptyStateHtml("아직 북마크한 항목이 없습니다.")
-      }
-    </section>
-  `;
-}
-
-function chatEntryHtml(entry) {
-  return `
-    <article class="chat-entry">
-      <p class="chat-entry__question type-body">${escapeHtml(entry.question)}</p>
-      <p class="chat-entry__answer type-body">${escapeHtml(entry.answer)}</p>
-      <span class="chat-entry__date type-caption">${formatDate(entry.created_at)}</span>
-    </article>
-  `;
-}
-
 async function renderChat() {
-  const session = getSession();
-  if (!session) {
-    location.hash = "/login?next=" + encodeURIComponent("/chat");
-    return "";
-  }
-  const logs = await fetchChatLogs(session.id);
-
   return `
     <h2 class="type-headline">AI 챗봇 — 핀테크 용어 질문</h2>
-    <p class="auth-note type-body">궁금한 핀테크 용어나 개념을 질문해보세요. 질문/답변은 아카이브에 자동 저장됩니다.</p>
+    <p class="auth-note type-body">궁금한 핀테크 용어나 개념을 질문해보세요.</p>
     <form class="chat-form" id="chatForm">
       <div class="field">
         <label for="chatQuestion">질문</label>
@@ -448,35 +297,7 @@ async function renderChat() {
       <button type="submit" class="pill pill-primary">질문하기</button>
       <p class="auth-note type-body" id="chatError" hidden></p>
     </form>
-    <h3 class="type-headline">아카이브</h3>
-    <div class="chat-log">
-      ${logs.length ? logs.map(chatEntryHtml).join("") : emptyStateHtml("아직 질문한 내용이 없습니다.")}
-    </div>
-  `;
-}
-
-function renderLogin(query) {
-  const session = getSession();
-  const next = query.next || "/";
-  if (session) {
-    return `
-      <h2 class="type-headline">로그인</h2>
-      <p class="auth-note type-body">이미 ${escapeHtml(session.email)}로 로그인되어 있습니다.</p>
-      <a class="type-link" href="#${next}">돌아가기 →</a>
-    `;
-  }
-
-  return `
-    <h2 class="type-headline">로그인</h2>
-    <p class="auth-note type-body">이메일 매직링크로 로그인합니다. 비밀번호는 없습니다.</p>
-    <form class="auth-form" id="loginForm">
-      <div class="field">
-        <label for="loginEmail">이메일</label>
-        <input type="email" id="loginEmail" name="email" required placeholder="you@example.com" />
-      </div>
-      <button type="submit" class="pill pill-primary">매직링크로 로그인</button>
-      <p class="auth-note type-body" id="loginStatus" hidden></p>
-    </form>
+    <div class="chat-log" id="chatAnswer"></div>
   `;
 }
 
@@ -516,12 +337,8 @@ async function render() {
     html = await renderArchive(query);
   } else if (path === "/fintech") {
     html = await renderFintech(query);
-  } else if (path === "/bookmarks") {
-    html = await renderBookmarks();
   } else if (path === "/chat") {
     html = await renderChat();
-  } else if (path === "/login") {
-    html = renderLogin(query);
   } else if (itemMatch) {
     html = await renderItem(itemMatch[1]);
   } else {
@@ -530,57 +347,16 @@ async function render() {
 
   app.innerHTML = html;
   wireHomeInteractions();
-  wireBookmarkButtons();
-  wireLoginForm();
   wireChatForm();
-  renderNavAuth();
 }
 
-function wireBookmarkButtons() {
-  document.querySelectorAll("[data-bookmark-toggle]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const session = getSession();
-      if (!session) {
-        const { path, query } = parseHash();
-        const queryString = new URLSearchParams(query).toString();
-        location.hash = "/login?next=" + encodeURIComponent(path + (queryString ? "?" + queryString : ""));
-        return;
-      }
-      const postId = Number(btn.dataset.bookmarkToggle);
-      try {
-        await toggleBookmark(session.id, postId);
-        render();
-      } catch (err) {
-        console.error("toggleBookmark failed:", err);
-        alert("북마크 처리 중 오류가 발생했습니다. 다시 시도해주세요.");
-      }
-    });
-  });
-}
-
-function wireLoginForm() {
-  const form = document.getElementById("loginForm");
-  if (!form) return;
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const email = form.email.value.trim();
-    if (!email) return;
-    const statusEl = document.getElementById("loginStatus");
-    const submitBtn = form.querySelector("button[type=submit]");
-    submitBtn.disabled = true;
-    try {
-      await signInWithMagicLink(email);
-      form.querySelector(".field").remove();
-      submitBtn.remove();
-      statusEl.hidden = false;
-      statusEl.textContent = `${email}로 매직링크를 보냈습니다. 이메일의 링크를 클릭하면 로그인이 완료됩니다.`;
-    } catch (err) {
-      console.error("signInWithMagicLink failed:", err);
-      submitBtn.disabled = false;
-      statusEl.hidden = false;
-      statusEl.textContent = "매직링크 전송에 실패했습니다. 이메일 주소를 확인하고 다시 시도해주세요.";
-    }
-  });
+function chatEntryHtml(question, answer) {
+  return `
+    <article class="chat-entry">
+      <p class="chat-entry__question type-body">${escapeHtml(question)}</p>
+      <p class="chat-entry__answer type-body">${escapeHtml(answer)}</p>
+    </article>
+  `;
 }
 
 function wireChatForm() {
@@ -588,41 +364,25 @@ function wireChatForm() {
   if (!form) return;
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const session = getSession();
-    if (!session) return;
     const question = form.question.value.trim();
     if (!question) return;
     const submitBtn = form.querySelector("button[type=submit]");
     const errorEl = document.getElementById("chatError");
+    const answerEl = document.getElementById("chatAnswer");
     submitBtn.disabled = true;
     errorEl.hidden = true;
     try {
-      await sendChatMessage(question);
-      render();
+      const answer = await sendChatMessage(question);
+      answerEl.innerHTML = chatEntryHtml(question, answer);
+      form.reset();
     } catch (err) {
       console.error("sendChatMessage failed:", err);
-      submitBtn.disabled = false;
       errorEl.hidden = false;
       errorEl.textContent = "답변을 가져오지 못했습니다. 잠시 후 다시 시도해주세요.";
+    } finally {
+      submitBtn.disabled = false;
     }
   });
-}
-
-function renderNavAuth() {
-  const el = document.getElementById("navAuth");
-  if (!el) return;
-  const session = getSession();
-  if (session) {
-    el.innerHTML = `<span class="nav-auth__email" title="${escapeHtml(session.email)}">${escapeHtml(
-      session.email
-    )}</span> · <button type="button" class="link-btn" id="logoutBtn">로그아웃</button>`;
-    document.getElementById("logoutBtn").addEventListener("click", async () => {
-      await signOut();
-      render();
-    });
-  } else {
-    el.innerHTML = `<a href="#/login">로그인</a>`;
-  }
 }
 
 function wireHomeInteractions() {
@@ -671,15 +431,7 @@ function wireNavToggle() {
 }
 
 window.addEventListener("hashchange", render);
-window.addEventListener("DOMContentLoaded", async () => {
+window.addEventListener("DOMContentLoaded", () => {
   wireNavToggle();
-  try {
-    await initAuth();
-  } catch (err) {
-    // initAuth() already catches its own known failure modes; this is a
-    // last-resort guard so an unexpected error still can't leave the page
-    // permanently blank on first load.
-    console.error("initAuth failed unexpectedly:", err);
-  }
   render();
 });

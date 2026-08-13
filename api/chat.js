@@ -1,10 +1,8 @@
 // Vercel Serverless Function (Node.js runtime, CommonJS, zero npm dependencies
-// per CLAUDE.md). Verifies the caller's Supabase session, answers a FinTech
-// term question via Claude, and archives the Q&A to `chat_logs`. Only
-// authenticated users may call this — there is no anonymous chat.
+// per CLAUDE.md). Answers a FinTech term question via Claude. No login, no
+// archive — the API key must stay server-side, which is the only reason this
+// function exists instead of calling Claude straight from app.js.
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
 const CLAUDE_MODEL = "claude-haiku-4-5-20251001";
@@ -21,21 +19,8 @@ module.exports = async function handler(req, res) {
     res.status(405).json({ error: "method not allowed" });
     return;
   }
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !ANTHROPIC_API_KEY) {
+  if (!ANTHROPIC_API_KEY) {
     res.status(500).json({ error: "missing required environment variables" });
-    return;
-  }
-
-  const authHeader = req.headers.authorization || "";
-  const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!accessToken) {
-    res.status(401).json({ error: "missing bearer token" });
-    return;
-  }
-
-  const user = await verifySupabaseUser(accessToken);
-  if (!user) {
-    res.status(401).json({ error: "invalid or expired session" });
     return;
   }
 
@@ -49,36 +34,14 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  let answer;
   try {
-    answer = await askClaude(question.trim());
+    const answer = await askClaude(question.trim());
+    res.status(200).json({ answer });
   } catch (err) {
     console.error("[chat] Claude call failed:", err);
     res.status(502).json({ error: "failed to get an answer from the model" });
-    return;
   }
-
-  try {
-    await saveChatLog(user.id, question.trim(), answer);
-  } catch (err) {
-    // Archiving is secondary to answering — log and still return the answer.
-    console.error("[chat] failed to save chat_logs entry:", err);
-  }
-
-  res.status(200).json({ answer });
 };
-
-async function verifySupabaseUser(accessToken) {
-  const resp = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-  if (!resp.ok) return null;
-  const user = await resp.json();
-  return user && user.id ? user : null;
-}
 
 async function askClaude(question) {
   const resp = await fetch("https://api.anthropic.com/v1/messages", {
@@ -102,18 +65,4 @@ async function askClaude(question) {
   const text = data.content && data.content[0] && data.content[0].text;
   if (!text) throw new Error("empty response from Claude API");
   return text.trim();
-}
-
-async function saveChatLog(userId, question, answer) {
-  const resp = await fetch(`${SUPABASE_URL}/rest/v1/chat_logs`, {
-    method: "POST",
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      "content-type": "application/json",
-      Prefer: "return=minimal",
-    },
-    body: JSON.stringify([{ user_id: userId, question, answer }]),
-  });
-  if (!resp.ok) throw new Error(`supabase insert chat_logs -> ${resp.status}: ${await resp.text()}`);
 }
