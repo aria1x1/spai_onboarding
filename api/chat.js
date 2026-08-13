@@ -55,7 +55,6 @@ async function askGemini(question) {
       body: JSON.stringify({
         contents: [{ role: "user", parts: [{ text: question }] }],
         systemInstruction: { parts: [{ text: FINTECH_SYSTEM_PROMPT }] },
-        tools: [{ google_search: {} }],
         generationConfig: { maxOutputTokens: 800 },
       }),
     }

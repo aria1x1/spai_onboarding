@@ -25,7 +25,7 @@ Tech Update 대시보드 프로젝트의 작업 규칙입니다. 제품 요구�
 
 **2026-08-13 임시 조치 (목업 데이터 fallback):** 배포 후 `posts`가 계속 비어 있는 것으로 확인됨 — `api/collect.js`가 Vercel 크론으로 아직 한 번도 성공적으로 돌지 않았거나 환경변수가 누락된 것으로 추정. 사용자가 화면에 뭔가 보이는 상태를 먼저 원해서, `app.js`에 `MOCK_POSTS`(8개 소스 각 3건, 2026-08-13에 각 소스 실제 RSS/아카이브에서 가져온 실제 제목·URL)를 하드코딩하고 `fetchPosts()`가 Supabase 조회 결과가 비어 있거나 실패할 때만 이를 반환하도록 함. 이 예외는 "app.js는 mock 없이 Supabase만 읽는다"는 기존 원칙을 임시로 깨는 것이며, `api/collect.js`가 실제로 `posts`를 채우는 것이 확인되면(Vercel 환경변수·크론 점검) `MOCK_POSTS`와 관련 fallback 분기를 반드시 삭제한다.
 
-**2026-08-13 결정 (챗봇을 Gemini API로 전환):** `api/chat.js`를 Haiku → Sonnet 5로 올린 뒤에도 배포 환경에서 답변 요청이 계속 실패("답변을 가져오지 못했습니다")했음. 정확한 원인(환경변수 누락, 신규 도입한 `web_search_20260209` 도구 문제 등)을 진단하기 전에 사용자가 Claude 대신 **Gemini API로 전환**하기로 결정함 — 따라서 원인이 Claude/Anthropic 쪽 설정 문제였을 가능성은 확인되지 않은 채로 남아 있다. `api/chat.js`만 Gemini(`gemini-flash-latest`, REST `v1beta/models/{model}:generateContent` 엔드포인트, `google_search` 도구로 최신 정보 검색)를 호출하도록 바뀌었고, system prompt·요청 검증·응답 미저장 원칙은 그대로 유지한다. `api/collect.js`는 이 결정과 무관하게 그대로 Claude(`claude-haiku-4-5-20251001`)를 계속 사용한다.
+**2026-08-13 결정 (챗봇을 Gemini API로 전환):** `api/chat.js`를 Haiku → Sonnet 5로 올린 뒤에도 배포 환경에서 답변 요청이 계속 실패("답변을 가져오지 못했습니다")했음. 정확한 원인(환경변수 누락, 신규 도입한 `web_search_20260209` 도구 문제 등)을 진단하기 전에 사용자가 Claude 대신 **Gemini API로 전환**하기로 결정함 — 따라서 원인이 Claude/Anthropic 쪽 설정 문제였을 가능성은 확인되지 않은 채로 남아 있다. `api/chat.js`만 Gemini(`gemini-flash-latest`, REST `v1beta/models/{model}:generateContent` 엔드포인트)를 호출하도록 바뀌었고, system prompt·요청 검증·응답 미저장 원칙은 그대로 유지한다. `api/collect.js`는 이 결정과 무관하게 그대로 Claude(`claude-haiku-4-5-20251001`)를 계속 사용한다. `google_search` 그라운딩 도구는 curl로 확인해보니 이 API 키에서 429(RESOURCE_EXHAUSTED)를 반환해 뺐다 — 일반 텍스트 생성 할당량과 별도로 그라운딩 전용 할당량/결제가 필요한 것으로 추정되며, 확인 전까지는 검색 없이 모델 자체 지식으로만 답변한다.
 
 ## 파일 구성 (고정)
 ```
@@ -52,7 +52,7 @@ vercel.json      # 예외: Vercel Cron 설정
   1. GitHub/Hugging Face/LangChain RSS + 데일리 테크 뉴스 + 4개 핀테크 소스를 서버사이드로 fetch (CORS 문제 없음)
   2. Claude API로 신규 항목만 요약 (API 키는 서버 환경에서만 사용)
   3. Supabase에 service role key로 upsert (URL 기준 중복 방지)
-- **AI 챗봇 처리**: `app.js`가 질문 텍스트를 `api/chat.js`로 전달하면, 이 함수가 핀테크 특화 시스템 프롬프트로 Gemini API(`v1beta/models/{model}:generateContent`, `google_search` 도구 포함)를 호출한 뒤 답변을 응답으로 돌려준다 (2026-08-13, Claude에서 전환 — 위 아키텍처 결정 배경 참고). 로그인/사용자 식별 없이 누구나 호출할 수 있고, 질문/답변은 서버에 저장하지 않는다.
+- **AI 챗봇 처리**: `app.js`가 질문 텍스트를 `api/chat.js`로 전달하면, 이 함수가 핀테크 특화 시스템 프롬프트로 Gemini API(`v1beta/models/{model}:generateContent`)를 호출한 뒤 답변을 응답으로 돌려준다 (2026-08-13, Claude에서 전환 — 위 아키텍처 결정 배경 참고). `google_search` 그라운딩 도구는 할당량 문제로 빠져 있어 모델 자체 지식으로만 답변한다. 로그인/사용자 식별 없이 누구나 호출할 수 있고, 질문/답변은 서버에 저장하지 않는다.
 - **소스별 수집 방식** (2026-08-13 실제 URL 확인, `api/collect.js`의 `SOURCES`가 최종 소스):
   - GitHub Blog: RSS `https://github.blog/feed/`
   - Hugging Face Blog: RSS `https://huggingface.co/blog/feed.xml` (전체 아카이브를 반환하므로 최신 `MAX_ITEMS_PER_SOURCE`개만 사용)
