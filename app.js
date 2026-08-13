@@ -33,8 +33,18 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_
 let currentSession = null;
 
 async function initAuth() {
-  const { data } = await supabaseClient.auth.getSession();
-  currentSession = data.session;
+  // getSession() also performs the PKCE code exchange when the page loads
+  // with a magic-link `?code=...` in the URL. If that exchange fails (link
+  // already used, opened in a different browser than the one that requested
+  // it, etc.) this must not prevent the app from rendering at all — fall
+  // back to "logged out" and let the user try logging in again.
+  try {
+    const { data } = await supabaseClient.auth.getSession();
+    currentSession = data.session;
+  } catch (err) {
+    console.error("initAuth: getSession failed:", err);
+    currentSession = null;
+  }
   supabaseClient.auth.onAuthStateChange((_event, session) => {
     currentSession = session;
     renderNavAuth();
@@ -663,6 +673,13 @@ function wireNavToggle() {
 window.addEventListener("hashchange", render);
 window.addEventListener("DOMContentLoaded", async () => {
   wireNavToggle();
-  await initAuth();
+  try {
+    await initAuth();
+  } catch (err) {
+    // initAuth() already catches its own known failure modes; this is a
+    // last-resort guard so an unexpected error still can't leave the page
+    // permanently blank on first load.
+    console.error("initAuth failed unexpectedly:", err);
+  }
   render();
 });
