@@ -60,7 +60,7 @@ vercel.json      # 예외: Vercel Cron 설정
 
 ## 비밀키 관리
 - `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`는 Vercel 환경변수로만 관리한다. 프론트엔드 코드(`app.js`, `index.html`)에 절대 하드코딩하지 않는다. `api/chat.js`도 `ANTHROPIC_API_KEY`를 서버 환경변수로만 읽는다.
-- 프론트엔드에 넣어도 되는 키는 Supabase **anon(public) key**뿐이며, 이 키는 RLS로 `posts` SELECT 및 로그인 사용자 본인 소유 행 접근만 허용되므로 노출되어도 안전한 범위로 제한한다.
+- 프론트엔드에 넣어도 되는 키는 Supabase **anon(public) key**뿐이며, 이 키는 RLS로 `posts` SELECT 및 로그인 사용자 본인 소유 행 접근만 허용되므로 노출되어도 안전한 범위로 제한한다. (2026-08-13) `app.js` 상단의 `SUPABASE_URL`/`SUPABASE_PUBLISHABLE_KEY`가 이 키다 — 새 publishable key 포맷(`sb_publishable_...`)을 사용했다.
 - `api/collect.js`, `api/chat.js`가 실제로 요구하는 Vercel 환경변수 (2026-08-13 구현 기준):
   - `SUPABASE_URL` — 프로젝트 REST/Auth 엔드포인트 베이스 URL (`https://<ref>.supabase.co`)
   - `SUPABASE_SERVICE_ROLE_KEY` — `posts`/`chat_logs` 쓰기 및 `api/chat.js`의 사용자 토큰 검증(`/auth/v1/user` 호출)에 사용
@@ -72,7 +72,9 @@ vercel.json      # 예외: Vercel Cron 설정
 - `app.js`는 프레임워크 없이 DOM API를 직접 다룬다. 상태 관리 라이브러리 도입 금지.
 - 소스별 배지 색상, 카드 레이아웃 등은 `style.css` 한 파일에만 정의한다.
 - 개별 소스 수집 실패가 다른 소스에 영향을 주지 않도록 `api/collect.js` 내에서 소스별로 에러를 격리한다 (PRD 검증 기준 대응). 핀테크 4소스도 동일한 격리 원칙을 적용한다.
-- Supabase/Auth/Claude API 연동 전까지는 `fetchPosts()`처럼 실제 호출을 대체하는 mock 함수를 하나씩 두고, 나머지 로직은 그 함수만 바꾸면 실제 연동으로 전환되도록 작성한다 (예: `fetchBookmarks()`, `sendChatMessage()`). mock과 실제 연동 로직을 뒤섞지 않는다.
+- (2026-08-13) `app.js`는 이제 실제 Supabase 클라이언트로 연동되어 있다 — `fetchPosts`/`fetchBookmarks`/`toggleBookmark`는 Supabase REST(PostgREST via JS SDK)를, `sendChatMessage`는 `fetch("/api/chat")`를, `fetchChatLogs`는 `chat_logs` 테이블을 직접 읽는다. mock 함수는 모두 제거했다. `SUPABASE_URL`/publishable key는 `app.js` 상단에 하드코딩되어 있다 (RLS로 보호되므로 노출되어도 안전, 위 비밀키 관리 절 참고).
+- 로그인 세션은 `supabaseClient.auth.getSession()`으로 초기화 후 모듈 전역 `currentSession`에 캐시하고, `onAuthStateChange`로 갱신한다 (매직링크 완료·로그아웃·다른 탭에서의 로그인 시 자동 반영). `getSession()`은 이 캐시를 동기적으로 읽는 헬퍼일 뿐, 매 호출마다 네트워크를 타지 않는다.
+- 매직링크 로그인은 `flowType: "pkce"`로 설정한다 (URL 해시가 아닌 `?code=` 쿼리 파라미터로 콜백이 오므로, 해시 기반 라우터(`#/...`)와 충돌하지 않음).
 
 ## 참고
 - 기존에 로컬 검증용으로 만들었던 Python/FastAPI 프로토타입(`tech-dashboard/app/*.py`)은 이 아키텍처 결정에 따라 더 이상 사용하지 않는다. 신규 구현은 이 문서 기준(정적 프론트 + Supabase + Vercel)으로 새로 진행한다.
