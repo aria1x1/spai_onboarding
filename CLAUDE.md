@@ -25,13 +25,15 @@ Tech Update 대시보드 프로젝트의 작업 규칙입니다. 제품 요구�
 
 **2026-08-13 임시 조치 (목업 데이터 fallback):** 배포 후 `posts`가 계속 비어 있는 것으로 확인됨 — `api/collect.js`가 Vercel 크론으로 아직 한 번도 성공적으로 돌지 않았거나 환경변수가 누락된 것으로 추정. 사용자가 화면에 뭔가 보이는 상태를 먼저 원해서, `app.js`에 `MOCK_POSTS`(8개 소스 각 3건, 2026-08-13에 각 소스 실제 RSS/아카이브에서 가져온 실제 제목·URL)를 하드코딩하고 `fetchPosts()`가 Supabase 조회 결과가 비어 있거나 실패할 때만 이를 반환하도록 함. 이 예외는 "app.js는 mock 없이 Supabase만 읽는다"는 기존 원칙을 임시로 깨는 것이며, `api/collect.js`가 실제로 `posts`를 채우는 것이 확인되면(Vercel 환경변수·크론 점검) `MOCK_POSTS`와 관련 fallback 분기를 반드시 삭제한다.
 
+**2026-08-13 결정 (챗봇을 Gemini API로 전환):** `api/chat.js`를 Haiku → Sonnet 5로 올린 뒤에도 배포 환경에서 답변 요청이 계속 실패("답변을 가져오지 못했습니다")했음. 정확한 원인(환경변수 누락, 신규 도입한 `web_search_20260209` 도구 문제 등)을 진단하기 전에 사용자가 Claude 대신 **Gemini API로 전환**하기로 결정함 — 따라서 원인이 Claude/Anthropic 쪽 설정 문제였을 가능성은 확인되지 않은 채로 남아 있다. `api/chat.js`만 Gemini(`gemini-flash-latest`, REST `v1beta/models/{model}:generateContent` 엔드포인트, `google_search` 도구로 최신 정보 검색)를 호출하도록 바뀌었고, system prompt·요청 검증·응답 미저장 원칙은 그대로 유지한다. `api/collect.js`는 이 결정과 무관하게 그대로 Claude(`claude-haiku-4-5-20251001`)를 계속 사용한다.
+
 ## 파일 구성 (고정)
 ```
 index.html       # 마크업만
 style.css        # 전체 스타일
 app.js           # 전체 클라이언트 로직 (Supabase JS SDK로 posts 조회/필터링/렌더링, 로그인 없음)
 api/collect.js   # 예외: Vercel Serverless Function — RSS/HTML 수집 + Claude 요약 + Supabase 저장 (테크 3소스 + 핀테크 4소스)
-api/chat.js      # 예외: Vercel Serverless Function — 핀테크 특화 시스템 프롬프트로 Claude API 호출 (로그인 불필요, 응답은 저장하지 않음)
+api/chat.js      # 예외: Vercel Serverless Function — 핀테크 특화 시스템 프롬프트로 Gemini API 호출 (로그인 불필요, 응답은 저장하지 않음)
 vercel.json      # 예외: Vercel Cron 설정
 ```
 - 프론트엔드 파일은 `index.html`, `style.css`, `app.js` 3개만 유지한다. 컴포넌트 분리, 별도 JS 모듈 파일, CSS 분리 등 추가 파일 생성 금지.
@@ -50,7 +52,7 @@ vercel.json      # 예외: Vercel Cron 설정
   1. GitHub/Hugging Face/LangChain RSS + 데일리 테크 뉴스 + 4개 핀테크 소스를 서버사이드로 fetch (CORS 문제 없음)
   2. Claude API로 신규 항목만 요약 (API 키는 서버 환경에서만 사용)
   3. Supabase에 service role key로 upsert (URL 기준 중복 방지)
-- **AI 챗봇 처리**: `app.js`가 질문 텍스트를 `api/chat.js`로 전달하면, 이 함수가 핀테크 특화 시스템 프롬프트로 Claude API를 호출한 뒤 답변을 응답으로 돌려준다. 로그인/사용자 식별 없이 누구나 호출할 수 있고, 질문/답변은 서버에 저장하지 않는다.
+- **AI 챗봇 처리**: `app.js`가 질문 텍스트를 `api/chat.js`로 전달하면, 이 함수가 핀테크 특화 시스템 프롬프트로 Gemini API(`v1beta/models/{model}:generateContent`, `google_search` 도구 포함)를 호출한 뒤 답변을 응답으로 돌려준다 (2026-08-13, Claude에서 전환 — 위 아키텍처 결정 배경 참고). 로그인/사용자 식별 없이 누구나 호출할 수 있고, 질문/답변은 서버에 저장하지 않는다.
 - **소스별 수집 방식** (2026-08-13 실제 URL 확인, `api/collect.js`의 `SOURCES`가 최종 소스):
   - GitHub Blog: RSS `https://github.blog/feed/`
   - Hugging Face Blog: RSS `https://huggingface.co/blog/feed.xml` (전체 아카이브를 반환하므로 최신 `MAX_ITEMS_PER_SOURCE`개만 사용)
@@ -62,14 +64,15 @@ vercel.json      # 예외: Vercel Cron 설정
   - The Fintech Times: RSS `https://fintechtimes.co.kr/data/rss/news.xml` (홈페이지 `<link rel="alternate">`에서 발견, `/feed/`는 404)
 
 ## 비밀키 관리
-- `ANTHROPIC_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`는 Vercel 환경변수로만 관리한다. 프론트엔드 코드(`app.js`, `index.html`)에 절대 하드코딩하지 않는다.
+- `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`는 Vercel 환경변수로만 관리한다. 프론트엔드 코드(`app.js`, `index.html`)에 절대 하드코딩하지 않는다.
 - 프론트엔드에 넣어도 되는 키는 Supabase **anon(public) key**뿐이며, 이 키는 RLS로 `posts` SELECT만 허용하므로 노출되어도 안전한 범위로 제한한다. (2026-08-13) `app.js` 상단의 `SUPABASE_URL`/`SUPABASE_PUBLISHABLE_KEY`가 이 키다 — 새 publishable key 포맷(`sb_publishable_...`)을 사용했다.
-- `api/collect.js`, `api/chat.js`가 실제로 요구하는 Vercel 환경변수 (2026-08-13 롤백 반영 기준):
+- `api/collect.js`, `api/chat.js`가 실제로 요구하는 Vercel 환경변수 (2026-08-13 Gemini 전환 반영 기준):
   - `SUPABASE_URL` — 프로젝트 REST 엔드포인트 베이스 URL (`https://<ref>.supabase.co`). `api/collect.js`에서만 사용.
   - `SUPABASE_SERVICE_ROLE_KEY` — `posts` 쓰기에 사용. `api/collect.js`에서만 사용 (로그인/`chat_logs`가 없어진 `api/chat.js`는 더 이상 Supabase를 호출하지 않는다).
-  - `ANTHROPIC_API_KEY` — `api/collect.js`, `api/chat.js` 둘 다 Claude Messages API 직접 호출(SDK 없이 `fetch`)에 사용. `api/collect.js`는 `claude-haiku-4-5-20251001`(대량 요약, 비용 우선). `api/chat.js`는 `claude-sonnet-5`(2026-08-13, Haiku가 "ISA 리밸런싱" 같은 질문에도 제대로 답하지 못해 품질 우선으로 교체 — system prompt는 그대로 유지)
+  - `ANTHROPIC_API_KEY` — `api/collect.js` 전용. Claude Messages API 직접 호출(SDK 없이 `fetch`)에 사용, 모델은 `claude-haiku-4-5-20251001`(대량 요약, 비용 우선).
+  - `GEMINI_API_KEY` — `api/chat.js` 전용 (2026-08-13, Claude에서 전환 — 위 아키텍처 결정 배경 참고). Gemini `generateContent` API 직접 호출(SDK 없이 `fetch`)에 사용, 모델은 `gemini-flash-latest`.
   - `CRON_SECRET` — `api/collect.js` 전용. Vercel Cron은 이 값이 설정되어 있으면 자동으로 `Authorization: Bearer $CRON_SECRET` 헤더를 붙여 호출하므로, 함수는 이 헤더를 검증해 무단 호출(과금 남용)을 막는다.
-- 두 함수 모두 `@supabase/supabase-js`, Anthropic SDK 등 npm 패키지를 쓰지 않고 Supabase REST(PostgREST)와 Claude API를 순수 `fetch`로 직접 호출한다 (백엔드도 "파일 3개 + 예외 2개" 원칙을 지키기 위해 `package.json`/`node_modules`를 추가하지 않기로 함, 2026-08-13 결정). `api/chat.js`는 로그인이 없으므로 이제 Claude API만 호출한다.
+- 두 함수 모두 npm 패키지(Anthropic SDK, Google SDK, `@supabase/supabase-js` 등) 없이 Supabase REST(PostgREST), Claude API, Gemini API를 순수 `fetch`로 직접 호출한다 (백엔드도 "파일 3개 + 예외 2개" 원칙을 지키기 위해 `package.json`/`node_modules`를 추가하지 않기로 함, 2026-08-13 결정).
 
 ## 코딩 규칙
 - `app.js`는 프레임워크 없이 DOM API를 직접 다룬다. 상태 관리 라이브러리 도입 금지.

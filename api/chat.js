@@ -1,11 +1,11 @@
 // Vercel Serverless Function (Node.js runtime, CommonJS, zero npm dependencies
-// per CLAUDE.md). Answers a FinTech term question via Claude. No login, no
+// per CLAUDE.md). Answers a FinTech term question via Gemini. No login, no
 // archive — the API key must stay server-side, which is the only reason this
-// function exists instead of calling Claude straight from app.js.
+// function exists instead of calling Gemini straight from app.js.
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-const CLAUDE_MODEL = "claude-sonnet-5";
+const GEMINI_MODEL = "gemini-flash-latest";
 const MAX_QUESTION_LENGTH = 500;
 
 const FINTECH_SYSTEM_PROMPT = `당신은 핀테크(FinTech) 분야에 특화된 AI 어시스턴트입니다.
@@ -19,7 +19,7 @@ module.exports = async function handler(req, res) {
     res.status(405).json({ error: "method not allowed" });
     return;
   }
-  if (!ANTHROPIC_API_KEY) {
+  if (!GEMINI_API_KEY) {
     res.status(500).json({ error: "missing required environment variables" });
     return;
   }
@@ -35,43 +35,40 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const answer = await askClaude(question.trim());
+    const answer = await askGemini(question.trim());
     res.status(200).json({ answer });
   } catch (err) {
-    console.error("[chat] Claude call failed:", err);
+    console.error("[chat] Gemini call failed:", err);
     res.status(502).json({ error: "failed to get an answer from the model" });
   }
 };
 
-async function askClaude(question) {
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: CLAUDE_MODEL,
-      max_tokens: 800,
-      system: FINTECH_SYSTEM_PROMPT,
-      // claude-sonnet-5 supports the dynamic-filtering web search variant.
-      tools: [{ type: "web_search_20260209", name: "web_search" }],
-      messages: [{ role: "user", content: question }],
-    }),
-  });
+async function askGemini(question) {
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-goog-api-key": GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: question }] }],
+        systemInstruction: { parts: [{ text: FINTECH_SYSTEM_PROMPT }] },
+        tools: [{ google_search: {} }],
+        generationConfig: { maxOutputTokens: 800 },
+      }),
+    }
+  );
   if (!resp.ok) {
-    throw new Error(`Claude API ${resp.status}: ${await resp.text()}`);
+    throw new Error(`Gemini API ${resp.status}: ${await resp.text()}`);
   }
   const data = await resp.json();
-  // With web search enabled, content can interleave server_tool_use /
-  // web_search_tool_result blocks with text blocks, so join every text block
-  // instead of assuming the answer is content[0].
-  const text = (data.content || [])
-    .filter((block) => block.type === "text")
-    .map((block) => block.text)
+  const parts = ((data.candidates || [])[0] || {}).content?.parts || [];
+  const text = parts
+    .map((part) => part.text || "")
     .join("\n")
     .trim();
-  if (!text) throw new Error("empty response from Claude API");
+  if (!text) throw new Error("empty response from Gemini API");
   return text;
 }
